@@ -32,5 +32,4 @@ Ad-tech systems rely on predicting ad clicks (CTR) and conversions to optimize b
    # Or using pip directly: pip install -r requirements.txt
    ```
 
-## Project Phases
-This project is built iteratively across 14 distinct phases covering data generation, CTR modeling, bidding logic simulating, experiment tracking, fastAPI serving, Dockerization, pipeline orchestration, and finally a dashboard. Currently in Phase 1 setup.
+
