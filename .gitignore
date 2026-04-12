@@ -18,3 +18,7 @@ data/synthetic/*
 # Editor
 .vscode/
 .idea/
+
+# Model artifacts (large binary files)
+models/artifacts/*.pkl
+!models/artifacts/.gitkeep
