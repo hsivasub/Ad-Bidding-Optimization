@@ -1,0 +1,33 @@
+# Git
+.git
+.gitignore
+
+# Python caching & environments
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyd
+.Python
+env/
+venv/
+.env/
+.venv/
+
+# Pytest and coverage
+.pytest_cache/
+htmlcov/
+.coverage
+.tox/
+
+# IDE & OS files
+.vscode/
+.idea/
+.DS_Store
+
+# Data payload folders (Extremely large, not needed for inference container)
+data/raw/
+data/processed/
+
+# Temp outputs
+scratch/
+logs/
