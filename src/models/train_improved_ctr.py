@@ -19,6 +19,9 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 import xgboost as xgb
+import mlflow
+import mlflow.sklearn
+import mlflow.xgboost
 
 from src.config.settings import settings
 from src.features.feature_engineering import (
@@ -136,6 +139,15 @@ def build_improved_feature_matrix(
 # ------------------------------------------------------------------
 
 def train():
+    # Phase 11: Setup MLflow tracking UI
+    # MLflow interprets C:\ as a scheme. Using a relative local path bypasses uri strictness.
+    mlruns_path = "logs/mlruns"
+    os.makedirs(mlruns_path, exist_ok=True)
+    
+    mlflow.set_tracking_uri(mlruns_path)
+    mlflow.set_experiment("Ad_Bidding_CTR_Optimization")
+    logger.info(f"MLflow tracking configured -> {mlruns_path}")
+
     df = load_processed_data()
 
     X, y, label_encoders, adv_state = build_improved_feature_matrix(df)
@@ -155,46 +167,65 @@ def train():
     # 1. Logistic Regression (improved features, same algorithm as baseline)
     # ------------------------------------------------------------------
     logger.info("Training Logistic Regression (improved features)...")
-    lr_model = LogisticRegression(
-        max_iter=3000,
-        class_weight="balanced",
-        random_state=RANDOM_STATE,
-        solver="saga",   # saga handles larger datasets / more features better than lbfgs
-    )
-    lr_model.fit(X_train, y_train)
+    lr_params = {
+        "max_iter": 3000,
+        "class_weight": "balanced",
+        "random_state": RANDOM_STATE,
+        "solver": "saga",   # saga handles larger datasets / more features better than lbfgs
+    }
+    
+    with mlflow.start_run(run_name="LogisticRegression_v2"):
+        mlflow.log_params(lr_params)
+        lr_model = LogisticRegression(**lr_params)
+        lr_model.fit(X_train, y_train)
+        
+        y_prob_lr = lr_model.predict_proba(X_test)[:, 1]
+        res_lr = compute_metrics(y_test, y_prob_lr, "LogisticRegression_v2")
+        mlflow.log_metrics({k: v for k, v in res_lr.items() if k != "model"})
+        mlflow.sklearn.log_model(lr_model, "lr_classifier_model")
 
     # ------------------------------------------------------------------
     # 2. XGBoost improved — with early stopping
     # ------------------------------------------------------------------
     logger.info("Training XGBoost (improved features + early stopping)...")
-    scale_pos_weight = (y_train == 0).sum() / (y_train == 1).sum()
+    scale_pos_weight = float((y_train == 0).sum() / (y_train == 1).sum())
 
-    xgb_model = xgb.XGBClassifier(
-        n_estimators=500,
-        max_depth=5,
-        learning_rate=0.03,
-        subsample=0.8,
-        colsample_bytree=0.7,
-        min_child_weight=5,
-        gamma=0.1,
-        reg_alpha=0.1,
-        reg_lambda=1.0,
-        scale_pos_weight=scale_pos_weight,
-        eval_metric="aucpr",          # PR-AUC better for imbalanced CTR
-        use_label_encoder=False,
-        random_state=RANDOM_STATE,
-        n_jobs=-1,
-        verbosity=0,
-        early_stopping_rounds=30,
-    )
-    xgb_model.fit(
-        X_train,
-        y_train,
-        eval_set=[(X_val, y_val)],
-        verbose=False,
-    )
-    best_n = xgb_model.best_iteration
-    logger.info(f"XGBoost best iteration (early stopping): {best_n}")
+    xgb_params = {
+        "n_estimators": 500,
+        "max_depth": 5,
+        "learning_rate": 0.03,
+        "subsample": 0.8,
+        "colsample_bytree": 0.7,
+        "min_child_weight": 5,
+        "gamma": 0.1,
+        "reg_alpha": 0.1,
+        "reg_lambda": 1.0,
+        "scale_pos_weight": scale_pos_weight,
+        "eval_metric": "aucpr",
+        "use_label_encoder": False,
+        "random_state": RANDOM_STATE,
+        "n_jobs": -1,
+        "verbosity": 0,
+        "early_stopping_rounds": 30,
+    }
+    
+    with mlflow.start_run(run_name="XGBoost_v2"):
+        mlflow.log_params(xgb_params)
+        xgb_model = xgb.XGBClassifier(**xgb_params)
+        xgb_model.fit(
+            X_train,
+            y_train,
+            eval_set=[(X_val, y_val)],
+            verbose=False,
+        )
+        best_n = float(xgb_model.best_iteration)
+        logger.info(f"XGBoost best iteration (early stopping): {best_n}")
+        mlflow.log_metric("best_iteration", best_n)
+        
+        y_prob_xgb = xgb_model.predict_proba(X_test)[:, 1]
+        res_xgb = compute_metrics(y_test, y_prob_xgb, "XGBoost_v2")
+        mlflow.log_metrics({k: v for k, v in res_xgb.items() if k != "model"})
+        mlflow.xgboost.log_model(xgb_model, "xgb_classifier_model")
 
     # ------------------------------------------------------------------
     # Evaluation & comparison
@@ -204,12 +235,7 @@ def train():
         "XGBoost_v2": xgb_model,
     }
 
-    results = []
-    for name, model in models_dict.items():
-        y_prob = model.predict_proba(X_test)[:, 1]
-        results.append(compute_metrics(y_test, y_prob, name))
-
-    comparison_df = compare_models(results)
+    comparison_df = compare_models([res_lr, res_xgb])
 
     # ------------------------------------------------------------------
     # Diagnostic plots
