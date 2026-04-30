@@ -1,4 +1,4 @@
-.PHONY: setup install test run-api run-dashboard clean
+.PHONY: setup install test run-api run-dashboard run-airflow setup-airflow clean
 
 setup:
 	python -m venv venv
@@ -15,6 +15,16 @@ run-api:
 
 run-dashboard:
 	streamlit run dashboard/app.py
+
+setup-airflow:
+	set AIRFLOW_HOME=%cd%\airflow
+	airflow db init
+	airflow users create --username admin --firstname Admin --lastname User --role Admin --email admin@example.com --password admin
+
+run-airflow:
+	set AIRFLOW_HOME=%cd%\airflow
+	start airflow webserver -p 8080
+	start airflow scheduler
 
 clean:
 	find . -type d -name "__pycache__" -exec rm -rf {} +
